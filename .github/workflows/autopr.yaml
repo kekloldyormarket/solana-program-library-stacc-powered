@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   autopr:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - name: Install jq
       run: sudo apt-get install jq
