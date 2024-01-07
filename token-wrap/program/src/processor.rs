@@ -57,11 +57,12 @@ fn process_create_mint(
 
     let rent = Rent::get()?;
 
-    let idempotent = match input[1] {
+    let idempotent = match input[0] {
         0 => false,
         1 => true,
         _ => return Err(ProgramError::InvalidInstructionData),
     };
+
 
     
     
@@ -97,6 +98,9 @@ fn process_create_mint(
         }
     }
     
+    let (_, bump_seed) = get_wrapped_mint_address_with_seed(unwrapped_mint_account.key, token_program.key);
+    let bumps = &[bump_seed];
+    let wrapped_mint_authority_seeds: &[&[u8]]  = &get_wrapped_mint_signer_seeds(unwrapped_mint_account.key, token_program.key, bumps);
 
         
     match *token_program.key {
@@ -107,10 +111,7 @@ fn process_create_mint(
             msg!("unwrapped_mint account {:?}", unwrapped_mint_account);
             msg!("funding account {:?}", funding_account);
             msg!("lamports {:?}", lamports);
-            let (_, bump_seed) = get_wrapped_mint_address_with_seed(unwrapped_mint_account.key, token_program.key);
-            let bumps = &[bump_seed];
-            let wrapped_mint_authority_seeds: &[&[u8]]  = &get_wrapped_mint_signer_seeds(unwrapped_mint_account.key, token_program.key, bumps);
-
+            
             
             let create_account_ix = system_instruction::create_account(
                 funding_account.key,
@@ -165,39 +166,21 @@ fn process_create_mint(
                 Mint2022::LEN as u64,
                 &spl_token_2022::ID,
             );
-            invoke(
+            invoke_signed(
                 &create_account_ix,
                 &[
                     funding_account.clone(),
                     wrapped_mint_account.clone(),
                     system_program.clone(),
                 ],
+                &[wrapped_mint_authority_seeds]
             )?;
-
-
-
-            let transfer_fee_enabled = match input[2] {
-                0 => false,
-                1 => true,
-                _ => return Err(ProgramError::InvalidInstructionData),
-            };
-
-
             
             let unwrapped_mint_unpacked = MintOld::unpack(&unwrapped_mint_account.data.borrow())?;
             let freeze_authority = match unwrapped_mint_unpacked.freeze_authority {
                 COption::Some(authority) => Some(authority),
                 COption::None => None,
             };
-
-        // Transfer unwrapped tokens to the escrow account
-        let wrapped_mint_authority_seeds = get_wrapped_mint_authority_seeds(wrapped_mint_account.key);
-        let (_, bump_seed) = get_wrapped_mint_authority_with_seed(wrapped_mint_account.key);
-        let signer_seeds = &[
-            &wrapped_mint_authority_seeds[0][..],
-            &wrapped_mint_authority_seeds[1][..],
-            &[bump_seed],
-        ];
         // Initialize the wrapped mint using SPL Token 2022
         let init_mint_ix = spl_token_2022::instruction::initialize_mint(
             &spl_token_2022::ID,
@@ -212,33 +195,45 @@ fn process_create_mint(
                 wrapped_mint_account.clone(),
                 token_program.clone(),
             ],
-            &[signer_seeds],
+            &[wrapped_mint_authority_seeds],
         )?;
 
-        if transfer_fee_enabled {
-            let transfer_fee = unpack_amount_u16(input[3..11].try_into().unwrap())?;
-            let maximum_fee = unpack_amount(input[11..19].try_into().unwrap())?;
 
-            let ix = initialize_transfer_fee_config(
-                &spl_token_2022::id(),
-                &wrapped_mint_account.key,
-                Some(funding_account.key),
-                    Some(funding_account.key),
-                    transfer_fee,
-                    maximum_fee
-            ).unwrap();
 
-            invoke_signed(
-                &ix,
-                &[
-                    wrapped_mint_account.clone(),
-                    token_program.clone(),
-                    funding_account.clone(),
-                ],
-                &[signer_seeds],
-            )?;
+let transfer_fee_enabled = match input[2] {
+    0 => false,
+    1 => true,
+    _ => return Err(ProgramError::InvalidInstructionData),
+};
 
-        }
+
+
+if transfer_fee_enabled {
+    let transfer_fee = unpack_amount_u16(input[3..11].try_into().unwrap())?;
+    let maximum_fee = unpack_amount(input[11..19].try_into().unwrap())?;
+
+    let ix = initialize_transfer_fee_config(
+        &spl_token_2022::id(),
+        &wrapped_mint_account.key,
+        Some(funding_account.key),
+            Some(funding_account.key),
+            transfer_fee,
+            maximum_fee
+    ).unwrap();
+
+    invoke_signed(
+        &ix,
+        &[
+            wrapped_mint_account.clone(),
+            token_program.clone(),
+            funding_account.clone(),
+        ],
+        &[wrapped_mint_authority_seeds],
+    )?;
+
+}
+
+
         
         },
         _ => return Err(ProgramError::InvalidAccountData),
@@ -311,7 +306,12 @@ fn process_wrap(
     // Parse the amount to wrap from the input
     let amount = unpack_amount(input[1..9].try_into().unwrap())?;
     
-    
+           
+    let (_, bump_seed) = get_wrapped_mint_address_with_seed(unwrapped_mint.key, wrapped_token_program.key);
+    let bumps = &[bump_seed];
+    let wrapped_mint_authority_seeds: &[&[u8]]  = &get_wrapped_mint_signer_seeds(unwrapped_mint.key, wrapped_token_program.key, bumps);
+
+
     match *wrapped_token_program.key {
         spl_token::ID => {
             assert_eq!(escrow_account.owner, &spl_token_2022::ID, "{}", ProgramError::IncorrectProgramId);
@@ -320,14 +320,7 @@ fn process_wrap(
             msg!("1");
 
             // Transfer unwrapped tokens to the escrow account
-            let wrapped_mint_authority_seeds = get_wrapped_mint_authority_seeds(wrapped_mint.key);
-            let (_, bump_seed) = get_wrapped_mint_authority_with_seed(wrapped_mint.key);
-            let signer_seeds = &[
-                &wrapped_mint_authority_seeds[0][..],
-                &wrapped_mint_authority_seeds[1][..],
-                &[bump_seed],
-            ];
-
+                 
             let mint_to_user_account_ix = spl_token::instruction::mint_to(
                 &spl_token::ID,
                 wrapped_mint.key,
@@ -344,7 +337,7 @@ fn process_wrap(
                     wrapped_token_program.clone(),
                     signer.clone(),
                 ],
-                &[signer_seeds],
+                &[wrapped_mint_authority_seeds],
             )?;
 
         },
@@ -356,14 +349,7 @@ fn process_wrap(
             msg!("2");
             assert_eq!(escrow_unwrapped_account.amount, amount, "{}", ProgramError::InsufficientFunds);
 
-            // Transfer unwrapped tokens to the escrow account
-            let wrapped_mint_authority_seeds = get_wrapped_mint_authority_seeds(wrapped_mint.key);
-            let (_, bump_seed) = get_wrapped_mint_authority_with_seed(wrapped_mint.key);
-            let signer_seeds = &[
-                &wrapped_mint_authority_seeds[0][..],
-                &wrapped_mint_authority_seeds[1][..],
-                &[bump_seed],
-            ];
+           
             let unpacked_mint = Mint2022::unpack(&wrapped_mint.data.borrow())?;
             let mint_to_user_account_ix = spl_token_2022::instruction::mint_to_checked(
                 &spl_token_2022::ID,
@@ -381,7 +367,7 @@ fn process_wrap(
                     user_destination_account.clone(),
                     wrapped_token_program.clone(),
                 ],
-                &[signer_seeds],
+                &[wrapped_mint_authority_seeds],
             )?;
         },
         _ => {
@@ -400,133 +386,137 @@ fn process_unwrap(
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
     msg!("123");
-    // Unwrap the required accounts from the account_info_iter
+    
     let wrapped_token_account = next_account_info(account_info_iter)?;
+    let wrapped_mint = next_account_info(account_info_iter)?;
     let escrow_account = next_account_info(account_info_iter)?;
-    let wrapped_token_mint_account = next_account_info(account_info_iter)?;
     let user_unwrapped_token_account = next_account_info(account_info_iter)?;
-    let burn_authority_account = next_account_info(account_info_iter)?;
-    let token_program_account = next_account_info(account_info_iter)?;
-
-    // Parse the amount to unwrap from the input
-    let amount = unpack_amount(input[1..9].try_into().unwrap())?;
-    
-    // Derive the seeds and bump for the wrapped mint authority
-    let (wrapped_mint_authority, bump_seed) = get_wrapped_mint_authority_with_seed(wrapped_token_mint_account.key);
-    let wrapped_mint_authority_seeds = get_wrapped_mint_authority_seeds(wrapped_token_mint_account.key);
-    let signer_seeds = &[
-        &wrapped_mint_authority_seeds[0][..],
-        &wrapped_mint_authority_seeds[1][..],
-        &[bump_seed],
-    ];
-
-    
-    assert!(wrapped_token_account.is_signer, "{}", ProgramError::MissingRequiredSignature);
-    assert_eq!(wrapped_token_account.owner, token_program_account.key, "{}", ProgramError::IncorrectProgramId);
-    assert!(amount > 0, "{}", ProgramError::InvalidArgument);
-    assert!(escrow_account.lamports() >= amount, "{}", ProgramError::InsufficientFunds);
-    assert_eq!(wrapped_token_mint_account.owner, token_program_account.key, "{}", ProgramError::IncorrectProgramId);
-    assert_eq!(user_unwrapped_token_account.owner, token_program_account.key, "{}", ProgramError::IncorrectProgramId);
-    assert!(burn_authority_account.is_signer, "{}", ProgramError::MissingRequiredSignature);
+    let unwrapped_mint = next_account_info(account_info_iter)?;
+    let escrow_authority_account = next_account_info(account_info_iter)?;
+    let wrapped_token_program = next_account_info(account_info_iter)?;
+    let unwrapped_token_program = next_account_info(account_info_iter)?;
+    let signer = next_account_info(account_info_iter)?;
 
 
-    match *token_program_account.key {
-        spl_token::ID => {
-            // Burn wrapped tokens from the user's account
-            let burn_wrapped_tokens_ix = spl_token::instruction::burn(
-                &spl_token::ID,
-                wrapped_token_account.key,
-                wrapped_token_mint_account.key,
-                burn_authority_account.key,
-                &[],
-                amount,
-            )?;
-            invoke(
-                &burn_wrapped_tokens_ix,
-                &[
-                    wrapped_token_account.clone(),
-                    wrapped_token_mint_account.clone(),
-                    burn_authority_account.clone(),
-                    token_program_account.clone(),
-                ],
-            )?;
+// Parse the amount to unwrap from the input
+let amount = unpack_amount(input[1..9].try_into().unwrap())?;
 
-            // Transfer unwrapped tokens from the escrow to the user's account using invoke_signed
-            let transfer_unwrapped_tokens_ix = spl_token::instruction::transfer(
-                &spl_token::ID,
-                escrow_account.key,
-                user_unwrapped_token_account.key,
-                &wrapped_mint_authority,
-                &[],
-                amount,
-            )?;
-            invoke_signed(
-                &transfer_unwrapped_tokens_ix,
-                &[
-                    escrow_account.clone(),
-                    user_unwrapped_token_account.clone(),
-                    token_program_account.clone(),
-                ],
-                &[signer_seeds],
-            )?;
-        },
-        spl_token_2022::ID => {
-            // Ensure the token program is SPL Token 2022
-            if *token_program_account.key != spl_token_2022::ID {
-                return Err(ProgramError::IncorrectProgramId);
-            }
+// Derive the seeds and bump for the wrapped mint authority
+let (wrapped_mint_authority, bump_seed) = get_wrapped_mint_authority_with_seed(wrapped_token_account.key);
+let wrapped_mint_authority_seeds = get_wrapped_mint_authority_seeds(wrapped_token_account.key);
+let signer_seeds = &[
+    &wrapped_mint_authority_seeds[0][..],
+    &wrapped_mint_authority_seeds[1][..],
+    &[bump_seed],
+];
 
-            // Fetch the decimals from the wrapped token mint
-            let wrapped_mint_info = Mint2022::unpack(&wrapped_token_mint_account.data.borrow())?;
-            let decimals = wrapped_mint_info.decimals;
 
-            // Burn wrapped tokens from the user's account using burn_checked
-            let burn_wrapped_tokens_ix = spl_token_2022::instruction::burn_checked(
-                &spl_token_2022::ID,
-                wrapped_token_account.key,
-                wrapped_token_mint_account.key,
-                burn_authority_account.key,
-                &[],
-                amount,
-                decimals,
-            )?;
-            invoke(
-                &burn_wrapped_tokens_ix,
-                &[
-                    wrapped_token_account.clone(),
-                    wrapped_token_mint_account.clone(),
-                    burn_authority_account.clone(),
-                    token_program_account.clone(),
-                ],
-            )?;
+assert!(wrapped_token_account.is_signer, "{}", ProgramError::MissingRequiredSignature);
+assert_eq!(wrapped_token_account.owner, wrapped_token_program.key, "{}", ProgramError::IncorrectProgramId);
+assert!(amount > 0, "{}", ProgramError::InvalidArgument);
+assert!(escrow_account.lamports() >= amount, "{}", ProgramError::InsufficientFunds);
+assert_eq!(user_unwrapped_token_account.owner, unwrapped_token_program.key, "{}", ProgramError::IncorrectProgramId);
+assert!(signer.is_signer, "{}", ProgramError::MissingRequiredSignature);
 
-            // Transfer unwrapped tokens from the escrow to the user's account using invoke_signed and transfer_checked
-            let transfer_unwrapped_tokens_ix = spl_token_2022::instruction::transfer_checked(
-                &spl_token_2022::ID,
-                escrow_account.key,
-                wrapped_token_mint_account.key,
-                user_unwrapped_token_account.key,
-                &wrapped_mint_authority,
-                &[],
-                amount,
-                decimals,
-            )?;
-            invoke_signed(
-                &transfer_unwrapped_tokens_ix,
-                &[
-                    escrow_account.clone(),
-                    user_unwrapped_token_account.clone(),
-                    token_program_account.clone(),
-                ],
-                &[signer_seeds],
-            )?;
-        },
-        _ => {
-            // Handle unknown or unsupported token program
-            return Err(ProgramError::InvalidAccountData);
-        },
-    }
-    Ok(())
+
+       
+let (_, bump_seed) = get_wrapped_mint_address_with_seed(unwrapped_mint.key, wrapped_token_program.key);
+let bumps = &[bump_seed];
+let wrapped_mint_authority_seeds: &[&[u8]]  = &get_wrapped_mint_signer_seeds(unwrapped_mint.key, wrapped_token_program.key, bumps);
+
+match *wrapped_token_program.key {
+    spl_token::ID => {
+        // Burn wrapped tokens from the user's account
+        let burn_wrapped_tokens_ix = spl_token::instruction::burn(
+            &spl_token::ID,
+            wrapped_token_account.key,
+            wrapped_token_account.key,
+            signer.key,
+            &[],
+            amount,
+        )?;
+        invoke(
+            &burn_wrapped_tokens_ix,
+            &[
+                wrapped_token_account.clone(),
+                wrapped_token_account.clone(),
+                signer.clone(),
+                wrapped_token_program.clone(),
+            ],
+        )?;
+
+        // Transfer unwrapped tokens from the escrow to the user's account using invoke_signed
+        let transfer_unwrapped_tokens_ix = spl_token::instruction::transfer(
+            &spl_token::ID,
+            escrow_account.key,
+            user_unwrapped_token_account.key,
+            &wrapped_mint_authority,
+            &[],
+            amount,
+        )?;
+        invoke_signed(
+            &transfer_unwrapped_tokens_ix,
+            &[
+                escrow_account.clone(),
+                user_unwrapped_token_account.clone(),
+                unwrapped_token_program.clone(),
+            ],
+            &[wrapped_mint_authority_seeds],
+        )?;
+    },
+    spl_token_2022::ID => {
+
+        // Fetch the decimals from the wrapped token mint
+        let wrapped_mint_info = Mint2022::unpack(&wrapped_token_account.data.borrow())?;
+        let decimals = wrapped_mint_info.decimals;
+
+        // Burn wrapped tokens from the user's account using burn_checked
+        let burn_wrapped_tokens_ix = spl_token_2022::instruction::burn_checked(
+            &spl_token_2022::ID,
+            wrapped_token_account.key,
+            wrapped_token_account.key,
+            signer.key,
+            &[],
+            amount,
+            decimals,
+        )?;
+        invoke(
+            &burn_wrapped_tokens_ix,
+            &[
+                wrapped_token_account.clone(),
+                wrapped_token_account.clone(),
+                signer.clone(),
+                wrapped_token_program.clone(),
+            ],
+        )?;
+
+        // Transfer unwrapped tokens from the escrow to the user's account using invoke_signed and transfer_checked
+        let transfer_unwrapped_tokens_ix = spl_token_2022::instruction::transfer_checked(
+            &spl_token_2022::ID,
+            escrow_account.key,
+            wrapped_token_account.key,
+            user_unwrapped_token_account.key,
+            &wrapped_mint_authority,
+            &[],
+            amount,
+            decimals,
+        )?;
+        invoke_signed(
+            &transfer_unwrapped_tokens_ix,
+            &[
+                escrow_account.clone(),
+                user_unwrapped_token_account.clone(),
+                unwrapped_token_program.clone(),
+            ],
+            &[wrapped_mint_authority_seeds],
+        )?;
+    },
+    _ => {
+        // Handle unknown or unsupported token program
+        return Err(ProgramError::InvalidAccountData);
+    },
+}
+Ok(())
 }
 
 // Helper function to unpack the amount from the instruction input
@@ -534,7 +524,6 @@ fn unpack_amount_u16(input: &[u8]) -> Result<u16, ProgramError> {
     assert_eq!(input.len(), 2, "{}", ProgramError::InvalidInstructionData);
     Ok(u16::from_le_bytes(input.try_into().unwrap()))
 }
-
 // Helper function to unpack the amount from the instruction input
 fn unpack_amount(input: &[u8]) -> Result<u64, ProgramError> {
     assert_eq!(input.len(), 8, "{}", ProgramError::InvalidInstructionData);
