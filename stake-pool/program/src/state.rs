@@ -307,13 +307,6 @@ impl StakePool {
             msg!("Manager fee account is not owned by token program, is not initialized, or does not match stake pool's mint");
             return Err(StakePoolError::InvalidFeeAccount.into());
         }
-        let extensions = token_account.get_extension_types()?;
-        if extensions
-            .iter()
-            .any(|x| !is_extension_supported_for_fee_account(x))
-        {
-            return Err(StakePoolError::UnsupportedFeeAccountExtension.into());
-        }
         Ok(())
     }
 

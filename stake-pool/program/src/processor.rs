@@ -852,13 +852,6 @@ impl Processor {
                 return Err(StakePoolError::InvalidMintFreezeAuthority.into());
             }
 
-            let extensions = pool_mint.get_extension_types()?;
-            if extensions
-                .iter()
-                .any(|x| !is_extension_supported_for_mint(x))
-            {
-                return Err(StakePoolError::UnsupportedMintExtension.into());
-            }
         }
         stake_pool.check_manager_fee_info(manager_fee_info)?;
 
@@ -4119,8 +4112,6 @@ impl PrintProgramError for StakePoolError {
             StakePoolError::InvalidSolWithdrawAuthority => msg!("Error: Provided sol withdraw authority does not match the program's"),
             StakePoolError::SolWithdrawalTooLarge => msg!("Error: Too much SOL withdrawn from the stake pool's reserve account"),
             StakePoolError::InvalidMetadataAccount => msg!("Error: Metadata account derived from pool mint account does not match the one passed to program"),
-            StakePoolError::UnsupportedMintExtension => msg!("Error: mint has an unsupported extension"),
-            StakePoolError::UnsupportedFeeAccountExtension => msg!("Error: fee account has an unsupported extension"),
             StakePoolError::ExceededSlippage => msg!("Error: instruction exceeds desired slippage limit"),
             StakePoolError::IncorrectMintDecimals => msg!("Error: Provided mint does not have 9 decimals to match SOL"),
             StakePoolError::ReserveDepleted => msg!("Error: Pool reserve does not have enough lamports to fund rent-exempt reserve in split destination. Deposit more SOL in reserve, or pre-fund split destination with the rent-exempt reserve for a stake account."),

@@ -3,7 +3,8 @@ split-debuginfo = "unpacked"
 
 [workspace]
 members = [
-  "token-wrap/program"
+  "stake-pool/cli",
+  "stake-pool/program"
 ]
 
 exclude = [

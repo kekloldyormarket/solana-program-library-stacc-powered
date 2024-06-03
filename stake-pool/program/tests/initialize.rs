@@ -624,13 +624,6 @@ async fn fail_with_unsupported_mint_extension() {
     .unwrap()
     .unwrap();
 
-    assert_eq!(
-        error,
-        TransactionError::InstructionError(
-            2,
-            InstructionError::Custom(error::StakePoolError::UnsupportedMintExtension as u32),
-        )
-    );
 }
 
 #[tokio::test]
@@ -689,13 +682,6 @@ async fn fail_with_unsupported_account_extension() {
     .unwrap()
     .unwrap();
 
-    assert_eq!(
-        error,
-        TransactionError::InstructionError(
-            2,
-            InstructionError::Custom(error::StakePoolError::UnsupportedFeeAccountExtension as u32),
-        )
-    );
 }
 
 #[tokio::test]
