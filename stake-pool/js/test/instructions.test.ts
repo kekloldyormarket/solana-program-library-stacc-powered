@@ -49,7 +49,7 @@ describe('StakePoolProgram', () => {
 
   connection.getMinimumBalanceForRentExemption = jest.fn(async () => 10000);
 
-  const stakePoolAddress = new PublicKey('SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy');
+  const stakePoolAddress = new PublicKey('585UYiD9xQHgcrfty2PxW9GEUnQDKcAj931pKi9iv1pK');
 
   const data = Buffer.alloc(1024);
   StakePoolLayout.encode(stakePoolMock, data);
